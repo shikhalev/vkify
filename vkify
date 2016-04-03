@@ -1,0 +1,77 @@
+#!/bin/bash
+
+function read_config()
+{
+  if [ -f "$1" ]; then
+    . "$1";
+  fi;
+}
+
+# выставляем умолчания
+OUTPUT_PREFIX='./VK/'
+TEMP_PREFIX='/tmp'
+OUTPUT_SIZE='VK'
+TIME_FORMAT='%Y-%m-%d %H:%M'
+TIME_FONT='-pointsize 16'
+INFO_FONT='-pointsize 12'
+
+# загружаем конфигурацию
+if [ -z "$VKIFY_CONF" ]; then
+  read_config /etc/vkify.conf
+  read_config ~/.vkify.conf
+else
+  read_config "$VKIFY_CONF"
+fi;
+read_config ./.vkify.conf
+
+# обрабатываем пресеты
+if [ "$OUTPUT_SIZE" == 'VK' ]; then
+  OUTPUT_SIZE='2560x2160';
+fi;
+if [ "$OUTPUT_SIZE" == 'FullHD' ]; then
+  OUTPUT_SIZE='1920x1080';
+fi;
+if [ "$OUTPUT_SIZE" == 'HD' ]; then
+  OUTPUT_SIZE='1280x720';
+fi;
+
+mkdir -p "$OUTPUT_PREFIX"
+
+function process()
+{
+  source="$1"
+  base=$(basename "$source")
+  name="${base%.*}"
+
+  time=$(exiftool -d "$TIME_FORMAT" -p '${DateTimeOriginal}' "$source")
+  camera=$(exiftool -p '${Model}' "$source")
+  lens=$(exiftool -p '${LensID}' "$source")
+  info=$(exiftool -p '${FocalLength#}mm, ${ShutterSpeed}s, f/${Aperture}, ISO ${ISO}' "$source")
+  if [ ! -z "$lens" ]; then
+    info="$lens\n$info"
+  fi;
+  if [ ! -z "$camera" ]; then
+    info="$camera\n$info"
+  fi;
+
+  time_png="$TEMP_PREFIX/time_$name.png"
+  info_png="$TEMP_PREFIX/info_$name.png"
+  stamp_png="$TEMP_PREFIX/stamp_$name.png"
+
+  convert -background black -fill white $TIME_FONT -gravity east label:"$time" "$time_png"
+  mogrify -border 2 -bordercolor black "$time_png"
+  convert -background black -fill white $INFO_FONT -gravity east label:"$info" "$info_png"
+  mogrify -border 2 -bordercolor black "$info_png"
+  convert -background black -gravity east -append "$time_png" "$info_png" "$stamp_png"
+  mogrify -border 10 -bordercolor black -alpha set -channel A -evaluate set 30% "$stamp_png"
+
+  convert \( -resize "$OUTPUT_SIZE" "$source" \) -gravity southeast "$stamp_png" -geometry +20+20 -composite -strip -quality 80 "$OUTPUT_PREFIX$name.jpg"
+
+  rm "$time_png"
+  rm "$info_png"
+  rm "$stamp_png"
+}
+
+for f in "$@"; do
+  process "$f";
+done;
